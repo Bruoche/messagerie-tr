@@ -45,6 +45,6 @@ func RawCall(method string, baseUrl string, params url.Values, headers map[strin
 	if err != nil {
 		log.Error("Une erreur est survenue lors de l'envois de la requête \"%s\" :\n  >> %s", url, err)
 	}
-	log.Debug("(%d) Requête \"%s\" traitée, réponse obtenue:\n%v", response.StatusCode, url, response)
+	log.Debug("(%d) Requête \"%s\" traitée, réponse obtenue:\n%v\nBody:%s", response.StatusCode, url, response, request.Body)
 	return response
 }

@@ -13,19 +13,16 @@ import (
 )
 
 type subStatus int
-type pubStatus int
 
 const (
-	SYN subStatus = iota
+	NAN subStatus = iota
+	SYN
 	ACK
-	WAIT pubStatus = iota
-	SA
 )
 
 var hostsToSub = make(chan string, 100)
-var subscribers = map[string]subStatus{}
 var hostsToPub = make(chan string, 100)
-var listens = map[string]pubStatus{}
+var connections = map[string]subStatus{}
 
 const HeaderHost = "Origin"
 
@@ -34,7 +31,7 @@ func Start() {
 	go SendAck(hostsToPub)
 }
 
-func SubTo(context *gin.Context) {
+func ConnectWith(context *gin.Context) {
 	logserv.Called("/sub")
 	targetURL, ok := context.GetQuery("url")
 	if !ok {
@@ -53,7 +50,7 @@ func SubTo(context *gin.Context) {
 	body := string(raw)
 	if status == 200 {
 		body = fmt.Sprintf("Connexion réussi avec %s", targetURL)
-		listens[engine.Host] = WAIT
+		connections[engine.Host] = NAN
 	}
 	context.String(status, body)
 }
@@ -72,7 +69,7 @@ func SendSynAck(hosts chan string) {
 	log.Info("Starting SendSynAck worker")
 	for host := range hosts {
 		log.Debug("Starting new send syn-ack job at %s", host)
-		subscribers[host] = SYN
+		connections[host] = SYN
 		log.Debug("Syncing subscriber %s", host)
 		code, _ := request.Call(
 			request.POST, host+"/syn-ack", url.Values{}, map[string]string{
@@ -100,7 +97,7 @@ func SendAck(hosts chan string) {
 	log.Info("Starting SendAck worker")
 	for host := range hosts {
 		log.Debug("Starting new send ack job at %s", host)
-		listens[host] = SA
+		connections[host] = ACK
 		log.Debug("Acknowledging publisher %s", host)
 		code, _ := request.Call(
 			request.POST, host+"/ack", url.Values{}, map[string]string{
@@ -116,12 +113,41 @@ func SendAck(hosts chan string) {
 
 func Ack(context *gin.Context) {
 	logserv.Called("/ack")
-	sub, ok := getHostOrHandle(context)
+	host, ok := getHostOrHandle(context)
 	if !ok {
 		return
 	}
-	log.Debug("Acknowledging %s", sub)
-	subscribers[sub] = ACK
+	status, ok := connections[host]
+	if !ok {
+		log.Debug("Rejecting from ack unregistered host \"%s\"", host)
+		reject(context, host)
+	}
+	if status != SYN {
+		log.Debug("Rejecting from ack host \"%s\" of status %d instead of %d", host, status, SYN)
+		reject(context, host)
+	}
+	log.Debug("Acknowledging %s", host)
+	connections[host] = ACK
+}
+
+func AuthOrReject(context *gin.Context) (host string, ok bool) {
+	host, ok = getHostOrHandle(context)
+	if !ok {
+		return "", false
+	}
+	status, ok := connections[host]
+	if !ok {
+		log.Debug("Rejecting unregistered host \"%s\"", host)
+		reject(context, host)
+		return
+	}
+	if status != ACK {
+		log.Debug("Rejecting host %s, is %d instead of %d", host, status, ACK)
+		reject(context, host)
+		return "", false
+	}
+	log.Debug("Authentified host %s", host)
+	return host, true
 }
 
 func getHostOrHandle(context *gin.Context) (host string, ok bool) {
@@ -135,4 +161,8 @@ func getHostOrHandle(context *gin.Context) (host string, ok bool) {
 		return "", false
 	}
 	return sub, true
+}
+
+func reject(context *gin.Context, host string) {
+	context.String(http.StatusUnauthorized, "Your host \"%s\" has not been acknowledged", host)
 }

@@ -24,10 +24,12 @@ func main() {
 		engine.MakeRoute(request.GET, "/health", healthCheck),
 		engine.MakeRoute(request.GET, "/message", msg.Get),
 		engine.MakeRoute(request.GET, "/message/from", msg.Call),
-		engine.MakeRoute(request.GET, "/sub", synack.SubTo),
+		engine.MakeRoute(request.GET, "/sub", synack.ConnectWith),
 		engine.MakeRoute(request.POST, "/syn", synack.Syn),
 		engine.MakeRoute(request.POST, "/syn-ack", synack.SynAck),
 		engine.MakeRoute(request.POST, "/ack", synack.Ack),
+		engine.MakeRoute(request.GET, "/publish", synack.Send),
+		engine.MakeRoute(request.POST, "/ingress", synack.Recieve),
 	})
 }
 

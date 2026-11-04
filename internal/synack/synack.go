@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/Bruoche/messagerie-tr/internal/engine"
 	"github.com/Bruoche/messagerie-tr/internal/logserv"
@@ -85,12 +86,12 @@ func SendSynAck(hosts chan string) {
 
 func SynAck(context *gin.Context) {
 	logserv.Called("/syn-ack")
-	pub, ok := getHostOrHandle(context)
+	host, ok := getHostOrHandle(context)
 	if !ok {
 		return
 	}
-	hostsToPub <- pub
-	context.String(http.StatusOK, fmt.Sprintf("Syn-Ack request recieved. Wait for ack at \"%s\".", pub))
+	hostsToPub <- host
+	context.String(http.StatusOK, fmt.Sprintf("Syn-Ack request recieved. Wait for ack at \"%s\".", host))
 }
 
 func SendAck(hosts chan string) {
@@ -98,6 +99,7 @@ func SendAck(hosts chan string) {
 	for host := range hosts {
 		log.Debug("Starting new send ack job at %s", host)
 		connections[host] = ACK
+		go KeepAlive(host)
 		log.Debug("Acknowledging publisher %s", host)
 		code, _ := request.Call(
 			request.POST, host+"/ack", url.Values{}, map[string]string{
@@ -128,6 +130,43 @@ func Ack(context *gin.Context) {
 	}
 	log.Debug("Acknowledging %s", host)
 	connections[host] = ACK
+	KeepAlive(host)
+}
+
+const DefaultWait = 5
+const maxTries = 10
+
+func KeepAlive(host string) {
+	tries := 0
+	for {
+		status, ok := connections[host]
+		if !ok {
+			log.Debug("Connection with %s deleted", host)
+		}
+		if status != ACK {
+			log.Debug("Host %s no longer acknowleged", host)
+		}
+		responseStatus, _ := request.Call(request.GET, host+"/health", url.Values{}, request.Headers{}, "")
+		if responseStatus == 200 {
+			time.Sleep(DefaultWait * time.Second)
+			tries = 0
+		} else {
+			log.Debug("Failed to keepalive %s (%d recieved)", host, status)
+			tries++
+			wait := 1 * time.Second
+			for range tries {
+				wait += wait
+			}
+			time.Sleep(wait)
+			if tries > maxTries {
+				log.Debug("Max number of retries expired, closing connection to %s", host)
+				delete(connections, host)
+				return
+			} else {
+				log.Debug("Retrying to connect with %s", host)
+			}
+		}
+	}
 }
 
 func AuthOrReject(context *gin.Context) (host string, ok bool) {

@@ -11,13 +11,14 @@ import (
 )
 
 type Method string
+type Headers map[string]string
 
 const (
 	GET  Method = "GET"
 	POST Method = "POST"
 )
 
-func Call(method Method, baseUrl string, params url.Values, headers map[string]string, body any) (int, []byte) {
+func Call(method Method, baseUrl string, params url.Values, headers Headers, body any) (int, []byte) {
 	response := RawCall(string(method), baseUrl, params, headers, body)
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -27,7 +28,7 @@ func Call(method Method, baseUrl string, params url.Values, headers map[string]s
 	return response.StatusCode, responseBody
 }
 
-func RawCall(method string, baseUrl string, params url.Values, headers map[string]string, body any) *http.Response {
+func RawCall(method string, baseUrl string, params url.Values, headers Headers, body any) *http.Response {
 	url := baseUrl + "?" + params.Encode()
 	bodyBuffer := new(bytes.Buffer)
 	if err := json.NewEncoder(bodyBuffer).Encode(body); err != nil {
@@ -45,6 +46,8 @@ func RawCall(method string, baseUrl string, params url.Values, headers map[strin
 	if err != nil {
 		log.Error("Une erreur est survenue lors de l'envois de la requête \"%s\" :\n  >> %s", url, err)
 	}
-	log.Debug("(%d) Requête \"%s\" traitée, réponse obtenue:\n%v\nBody:%s", response.StatusCode, url, response, request.Body)
+	if response != nil {
+		log.Debug("(%d) Requête \"%s\" traitée, réponse obtenue:\n%v\nBody:%s", response.StatusCode, url, response, request.Body)
+	}
 	return response
 }

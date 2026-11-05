@@ -20,6 +20,9 @@ const (
 
 func Call(method Method, baseUrl string, params url.Values, headers Headers, body any) (int, []byte) {
 	response := RawCall(string(method), baseUrl, params, headers, body)
+	if response == nil {
+		return http.StatusInternalServerError, []byte("Réponse nulle reçue")
+	}
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Error("Une erreur est survenue lors de la lecture du body de la requête")

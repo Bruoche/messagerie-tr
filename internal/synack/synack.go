@@ -134,7 +134,7 @@ func Ack(context *gin.Context) {
 }
 
 const DefaultWait = 5
-const maxTries = 10
+const maxTries = 2
 
 func KeepAlive(host string) {
 	tries := 0

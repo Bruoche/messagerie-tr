@@ -6,24 +6,23 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Bruoche/messagerie-tr/internal/engine"
-	"github.com/Bruoche/messagerie-tr/internal/logserv"
+	"github.com/Bruoche/messagerie-tr/internal/request"
+	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
-	"github.com/Bruoche/messagerie-tr/pkg/request"
 	"github.com/gin-gonic/gin"
 )
 
-type subStatus int
+type connexionStatus int
 
 const (
-	NAN subStatus = iota
+	NAN connexionStatus = iota
 	SYN
 	ACK
 )
 
 var hostsToSub = make(chan string, 100)
 var hostsToPub = make(chan string, 100)
-var connections = map[string]subStatus{}
+var connections = map[string]connexionStatus{}
 
 const HeaderHost = "Origin"
 
@@ -32,66 +31,77 @@ func Start() {
 	go SendAck(hostsToPub)
 }
 
-func ConnectWith(context *gin.Context) {
-	logserv.Called("/sub")
-	targetURL, ok := context.GetQuery("url")
-	if !ok {
-		context.String(http.StatusBadRequest, "Veuillez renseigner le domaine où s'abonner (champs \"url\")")
-		return
-	}
-	status, raw := request.Call(
-		request.POST,
-		targetURL+"/syn",
+type UrlQuery struct {
+	url string
+}
+
+func (q *UrlQuery) Load(c *gin.Context) error {
+	url, err := request.RequireQuery(c, "url")
+	q.url = url
+	return err
+}
+
+func ConnectWith(_ *request.NoParam, q *UrlQuery) (string, error) {
+	connexionUrl := q.url + "/syn"
+	status, body := ext.Call(
+		ext.POST,
+		connexionUrl,
 		url.Values{},
 		map[string]string{
-			HeaderHost: engine.Host,
+			HeaderHost: request.Host,
 		},
 		"",
 	)
-	body := string(raw)
-	if status == 200 {
-		body = fmt.Sprintf("Connexion réussi avec %s", targetURL)
-		connections[engine.Host] = NAN
+	if status != 200 {
+		return "", request.UnexpectedResponseFrom(connexionUrl, status, string(body))
 	}
-	context.String(status, body)
+	connections[request.Host] = NAN
+	return fmt.Sprintf("Demande de connexion envoyée à %s", q.url), nil
 }
 
-func Syn(context *gin.Context) {
-	logserv.Called("/syn")
-	sub, ok := getHostOrHandle(context)
-	if !ok {
-		return
+type HostHeader struct {
+	host string
+}
+
+var _ request.Loadable = &HostHeader{}
+
+func (h *HostHeader) Load(c *gin.Context) error {
+	h.host = c.Request.Header.Get("Origin")
+	log.Debug("got host \"%s\"", h.host)
+	if h.host == "" {
+		return request.ErrorResponse{
+			Code: http.StatusBadRequest,
+			Err:  "Veuillez renseigner un domaine valide dans le header \"Origin\"",
+		}
 	}
-	hostsToSub <- sub
-	context.String(http.StatusOK, fmt.Sprintf("Syn request recieved, wait for syn-ack at \"%s\"", sub))
+	return nil
+}
+
+func Syn(h *HostHeader, _ *request.NoParam) (string, error) {
+	hostsToSub <- h.host
+	return fmt.Sprintf("Syn request recieved, wait for syn-ack at \"%s\"", h.host), nil
 }
 
 func SendSynAck(hosts chan string) {
 	log.Info("Starting SendSynAck worker")
 	for host := range hosts {
-		log.Debug("Starting new send syn-ack job at %s", host)
+		log.Debug("Starting new send syn-ack job for %s", host)
 		connections[host] = SYN
-		log.Debug("Syncing subscriber %s", host)
-		code, _ := request.Call(
-			request.POST, host+"/syn-ack", url.Values{}, map[string]string{
-				HeaderHost: engine.Host,
+		code, body := ext.Call(
+			ext.POST, host+"/syn-ack", url.Values{}, map[string]string{
+				HeaderHost: request.Host,
 			},
 			"Acknowledging Syn and waiting for acknowledgement of SynAck",
 		)
 		if code != 200 {
-			log.Debug("Erreur pour se connecter au host %s (%d)", host, code)
+			log.Warn("Erreur pour envoyer syn-ack au host %s (%d - %s)", host, code, body)
 		}
 	}
 }
 
-func SynAck(context *gin.Context) {
-	logserv.Called("/syn-ack")
-	host, ok := getHostOrHandle(context)
-	if !ok {
-		return
-	}
-	hostsToPub <- host
-	context.String(http.StatusOK, fmt.Sprintf("Syn-Ack request recieved. Wait for ack at \"%s\".", host))
+func SynAck(h *HostHeader, _ *request.NoParam) (string, error) {
+	hostsToPub <- h.host
+	return fmt.Sprintf("Syn-Ack request recieved. Wait for ack at \"%s\".", h.host), nil
 }
 
 func SendAck(hosts chan string) {
@@ -101,9 +111,9 @@ func SendAck(hosts chan string) {
 		connections[host] = ACK
 		go KeepAlive(host)
 		log.Debug("Acknowledging publisher %s", host)
-		code, _ := request.Call(
-			request.POST, host+"/ack", url.Values{}, map[string]string{
-				HeaderHost: engine.Host,
+		code, _ := ext.Call(
+			ext.POST, host+"/ack", url.Values{}, map[string]string{
+				HeaderHost: request.Host,
 			},
 			"Acknowledging successfull synack.",
 		)
@@ -113,24 +123,15 @@ func SendAck(hosts chan string) {
 	}
 }
 
-func Ack(context *gin.Context) {
-	logserv.Called("/ack")
-	host, ok := getHostOrHandle(context)
-	if !ok {
-		return
+func Ack(h *HostHeader, _ *request.NoParam) (string, error) {
+	err := vetAuth(h.host, SYN)
+	if err != nil {
+		return "", err
 	}
-	status, ok := connections[host]
-	if !ok {
-		log.Debug("Rejecting from ack unregistered host \"%s\"", host)
-		reject(context, host)
-	}
-	if status != SYN {
-		log.Debug("Rejecting from ack host \"%s\" of status %d instead of %d", host, status, SYN)
-		reject(context, host)
-	}
-	log.Debug("Acknowledging %s", host)
-	connections[host] = ACK
-	KeepAlive(host)
+	log.Debug("Acknowledging %s", h.host)
+	connections[h.host] = ACK
+	go KeepAlive(h.host)
+	return "Connexion successfull", nil
 }
 
 const DefaultWait = 5
@@ -146,7 +147,7 @@ func KeepAlive(host string) {
 		if status != ACK {
 			log.Debug("Host %s no longer acknowleged", host)
 		}
-		responseStatus, _ := request.Call(request.GET, host+"/health", url.Values{}, request.Headers{}, "")
+		responseStatus, _ := ext.Call(ext.GET, host+"/health", url.Values{}, ext.Headers{}, "")
 		if responseStatus == 200 {
 			time.Sleep(DefaultWait * time.Second)
 			tries = 0
@@ -169,39 +170,21 @@ func KeepAlive(host string) {
 	}
 }
 
-func AuthOrReject(context *gin.Context) (host string, ok bool) {
-	host, ok = getHostOrHandle(context)
-	if !ok {
-		return "", false
-	}
+func vetAuth(host string, expected connexionStatus) error {
 	status, ok := connections[host]
 	if !ok {
 		log.Debug("Rejecting unregistered host \"%s\"", host)
-		reject(context, host)
-		return
+		return request.ErrorResponse{
+			Code: http.StatusUnauthorized,
+			Err:  "Your host \"%s\" is not connected",
+		}
 	}
-	if status != ACK {
-		log.Debug("Rejecting host %s, is %d instead of %d", host, status, ACK)
-		reject(context, host)
-		return "", false
+	if status != expected {
+		log.Debug("Rejecting host %s, is %d instead of %d", host, status, expected)
+		return request.ErrorResponse{
+			Code: http.StatusUnauthorized,
+			Err:  fmt.Sprintf("Your host \"%s\" has the status %d instead of %d", host, status, expected),
+		}
 	}
-	log.Debug("Authentified host %s", host)
-	return host, true
-}
-
-func getHostOrHandle(context *gin.Context) (host string, ok bool) {
-	sub := context.Request.Header.Get("Origin")
-	log.Debug("got host \"%s\"", sub)
-	if sub == "" {
-		context.String(
-			http.StatusBadRequest,
-			"Veuillez renseigner un domaine valide dans le header \"Origin\"",
-		)
-		return "", false
-	}
-	return sub, true
-}
-
-func reject(context *gin.Context, host string) {
-	context.String(http.StatusUnauthorized, "Your host \"%s\" has not been acknowledged", host)
+	return nil
 }

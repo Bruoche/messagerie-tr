@@ -1,26 +1,34 @@
 package msg
 
 import (
-	"net/http"
 	"net/url"
 
-	"github.com/Bruoche/messagerie-tr/internal/logserv"
-	"github.com/Bruoche/messagerie-tr/pkg/request"
+	"github.com/Bruoche/messagerie-tr/internal/request"
+	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/gin-gonic/gin"
 )
 
-func Call(context *gin.Context) {
-	logserv.Called("/call")
-	targetURL, ok := context.GetQuery("url")
-	if !ok {
-		context.String(http.StatusBadRequest, "Veuillez renseigner l'url appelée")
-		return
-	}
-	status, body := request.Call(request.GET, targetURL+"/message", url.Values{}, map[string]string{}, "")
-	context.String(status, string(body))
+type UrlQuery struct {
+	url string
 }
 
-func Get(context *gin.Context) {
-	logserv.Called("/message")
-	context.String(http.StatusOK, "hello")
+var _ request.Loadable = &UrlQuery{}
+
+func (q *UrlQuery) Load(c *gin.Context) error {
+	url, err := request.RequireQuery(c, "url")
+	q.url = url
+	return err
+}
+
+func Call(_ *request.NoParam, q *UrlQuery) (string, error) {
+	targetUrl := q.url + "/message"
+	status, body := ext.Call(ext.GET, targetUrl, url.Values{}, map[string]string{}, "")
+	if status != 200 {
+		return "", request.UnexpectedResponseFrom(targetUrl, status, string(body))
+	}
+	return string(body), nil
+}
+
+func Get(*request.NoParam, *request.NoParam) (string, error) {
+	return "hello", nil
 }

@@ -6,38 +6,58 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/Bruoche/messagerie-tr/internal/engine"
-	"github.com/Bruoche/messagerie-tr/internal/logserv"
+	"github.com/Bruoche/messagerie-tr/internal/request"
+	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
-	"github.com/Bruoche/messagerie-tr/pkg/request"
 	"github.com/gin-gonic/gin"
 )
 
-type Message struct {
+type MessageQuery struct {
+	message string
+}
+
+func (q *MessageQuery) Load(c *gin.Context) error {
+	message, err := request.RequireQuery(c, "message")
+	q.message = message
+	return err
+}
+
+type MessageResponse struct {
 	Action  string
 	Payload string
 }
 
-var messages = []Message{}
-
-func Send(context *gin.Context) {
-	logserv.Called("/send")
-	message, ok := context.GetQuery("message")
-	if !ok {
-		context.String(http.StatusBadRequest, "Veuillez renseigner le paramètre \"message\" dans la requête")
+func (r *MessageResponse) Load(c *gin.Context) error {
+	err := c.ShouldBindJSON(r)
+	if err != nil {
+		return request.ErrorResponse{
+			Code: http.StatusBadRequest,
+			Err:  fmt.Sprintf("Impossible de déserialiser le corps de la requête: %s", err),
+		}
 	}
-	msgBody := Message{"MSG", message}
+	return nil
+}
+
+type RecievedMessage struct {
+	MessageResponse
+	host string
+}
+
+var messages = []RecievedMessage{}
+
+func Send(_ *request.NoParam, q *MessageQuery) (string, error) {
+	msgBody := MessageResponse{"MSG", q.message}
 	errs := []error{}
 	recieved := false
 	for host, ack := range connections {
 		if ack == ACK {
-			status, response := request.Call(
-				request.POST, host+"/ingress", url.Values{}, map[string]string{
-					HeaderHost: engine.Host,
+			status, response := ext.Call(
+				ext.POST, host+"/ingress", url.Values{}, map[string]string{
+					HeaderHost: request.Host,
 				},
 				msgBody,
 			)
-			log.Debug("Sent \"%+s\" to %s", message, host)
+			log.Debug("Sent \"%+s\" to %s", q.message, host)
 			if status != 200 {
 				errs = append(errs, fmt.Errorf("%s: (%d) %s", host, status, response))
 			} else {
@@ -46,32 +66,32 @@ func Send(context *gin.Context) {
 		}
 	}
 	if recieved {
-		messages = append(messages, msgBody)
+		messages = append(messages, RecievedMessage{msgBody, request.Host})
 	}
-	body := "Message sent to all connections."
 	err := errors.Join(errs...)
 	if err != nil {
-		body = fmt.Sprintf("Some hosts failed:\n%s", err)
+		return fmt.Sprintf("Some hosts failed:\n%s", err), nil
 	}
-	context.String(http.StatusOK, body)
+	return "Message sent to all connections.", nil
 }
 
-func Recieve(context *gin.Context) {
-	logserv.Called("/ingress")
-	_, ok := AuthOrReject(context)
-	if !ok {
-		return
-	}
-	var message Message
-	err := context.ShouldBindJSON(&message)
+func Recieve(h *HostHeader, r *MessageResponse) (string, error) {
+	err := vetAuth(h.host, ACK)
 	if err != nil {
-		log.Error("%s", err)
-		context.String(
-			http.StatusBadRequest,
-			fmt.Sprintf("Impossible de déserialiser le corps de la requête: %s", err),
-		)
-		return
+		return "", err
 	}
-	log.Debug("Got message \"%s\"", message.Payload)
-	context.String(http.StatusOK, "Message recieved.")
+	log.Debug("Got message \"%s\"", r.Payload)
+	messages = append(messages, RecievedMessage{*r, h.host})
+	return "Message recieved.", nil
+}
+
+func Messages(*request.NoParam, *request.NoParam) (string, error) {
+	board := ""
+	for _, message := range messages {
+		board += fmt.Sprintf("%s [%s]: %s\n", message.host, message.Action, message.Payload)
+	}
+	if board == "" {
+		return "No messages sent or recieved so far", nil
+	}
+	return board, nil
 }

@@ -2,16 +2,13 @@ package main
 
 import (
 	"flag"
-	"net/http"
 	"strconv"
 
-	"github.com/Bruoche/messagerie-tr/internal/engine"
-	"github.com/Bruoche/messagerie-tr/internal/logserv"
 	"github.com/Bruoche/messagerie-tr/internal/msg"
+	request "github.com/Bruoche/messagerie-tr/internal/request"
 	"github.com/Bruoche/messagerie-tr/internal/synack"
+	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
-	"github.com/Bruoche/messagerie-tr/pkg/request"
-	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -20,20 +17,22 @@ func main() {
 	var port int
 	flag.IntVar(&port, "p", 8085, "Port used to start the server")
 	flag.Parse()
-	engine.Boot("localhost:"+strconv.Itoa(port), []engine.Route{
-		engine.MakeRoute(request.GET, "/health", healthCheck),
-		engine.MakeRoute(request.GET, "/message", msg.Get),
-		engine.MakeRoute(request.GET, "/message/from", msg.Call),
-		engine.MakeRoute(request.GET, "/sub", synack.ConnectWith),
-		engine.MakeRoute(request.POST, "/syn", synack.Syn),
-		engine.MakeRoute(request.POST, "/syn-ack", synack.SynAck),
-		engine.MakeRoute(request.POST, "/ack", synack.Ack),
-		engine.MakeRoute(request.GET, "/publish", synack.Send),
-		engine.MakeRoute(request.POST, "/ingress", synack.Recieve),
-	})
+	request.Init(
+		"localhost:"+strconv.Itoa(port),
+		request.MakePath(ext.GET, "/", request.String(request.Index)),
+		request.MakePath(ext.GET, "/health", request.String(healthCheck)),
+		request.MakePath(ext.GET, "/message", request.String(msg.Get)),
+		request.MakePath(ext.GET, "/message/from", request.String(msg.Call)),
+		request.MakePath(ext.GET, "/connect", request.String(synack.ConnectWith)),
+		request.MakePath(ext.POST, "/syn", request.String(synack.Syn)),
+		request.MakePath(ext.POST, "/syn-ack", request.String(synack.SynAck)),
+		request.MakePath(ext.POST, "/ack", request.String(synack.Ack)),
+		request.MakePath(ext.GET, "/publish", request.String(synack.Send)),
+		request.MakePath(ext.POST, "/ingress", request.String(synack.Recieve)),
+		request.MakePath(ext.GET, "/messages", request.String(synack.Messages)),
+	)
 }
 
-func healthCheck(context *gin.Context) {
-	logserv.Called("health check")
-	context.String(http.StatusOK, "healthy")
+func healthCheck(*request.NoParam, *request.NoParam) (string, error) {
+	return "healthy", nil
 }

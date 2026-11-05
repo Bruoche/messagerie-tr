@@ -20,6 +20,20 @@ const (
 	ACK
 )
 
+var statusLabelMapping = map[connexionStatus]string{
+	NAN: "Disconnected",
+	SYN: "Synchronizing...",
+	ACK: "Connected",
+}
+
+func (s connexionStatus) ToString() string {
+	label, ok := statusLabelMapping[s]
+	if !ok {
+		return fmt.Sprintf("Status %d", s)
+	}
+	return label
+}
+
 var hostsToSub = make(chan string, 100)
 var hostsToPub = make(chan string, 100)
 var connections = map[string]connexionStatus{}
@@ -176,7 +190,7 @@ func vetAuth(host string, expected connexionStatus) error {
 		log.Debug("Rejecting unregistered host \"%s\"", host)
 		return request.ErrorResponse{
 			Code: http.StatusUnauthorized,
-			Err:  "Your host \"%s\" is not connected",
+			Err:  fmt.Sprintf("Your host \"%s\" is not connected"),
 		}
 	}
 	if status != expected {
@@ -187,4 +201,24 @@ func vetAuth(host string, expected connexionStatus) error {
 		}
 	}
 	return nil
+}
+
+func Connections(*request.NoParam, *request.NoParam) (string, error) {
+	response := ""
+	for host, status := range connections {
+		response += fmt.Sprintf("%s: %s\n", host, status.ToString())
+	}
+	if response == "" {
+		return "No connexions made yet", nil
+	}
+	return response, nil
+}
+
+func Forget(h *HostHeader, expected *request.NoParam) (string, error) {
+	err := vetAuth(h.host, ACK)
+	if err != nil {
+		return "", err
+	}
+	delete(connections, h.host)
+	return "Connexion ended.", nil
 }

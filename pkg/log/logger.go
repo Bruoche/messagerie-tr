@@ -8,7 +8,7 @@ import (
 )
 
 func Debug(message string, args ...any) {
-	log("DEBUG", message, args...)
+	// log("DEBUG", message, args...)
 }
 
 func Info(message string, args ...any) {

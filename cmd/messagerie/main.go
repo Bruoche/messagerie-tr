@@ -24,12 +24,14 @@ func main() {
 		request.MakePath(ext.GET, "/message", request.String(msg.Get)),
 		request.MakePath(ext.GET, "/message/from", request.String(msg.Call)),
 		request.MakePath(ext.GET, "/connect", request.String(synack.ConnectWith)),
+		request.MakePath(ext.GET, "/connections", request.String(synack.Connections)),
 		request.MakePath(ext.POST, "/syn", request.String(synack.Syn)),
 		request.MakePath(ext.POST, "/syn-ack", request.String(synack.SynAck)),
 		request.MakePath(ext.POST, "/ack", request.String(synack.Ack)),
 		request.MakePath(ext.GET, "/publish", request.String(synack.Send)),
 		request.MakePath(ext.POST, "/ingress", request.String(synack.Recieve)),
 		request.MakePath(ext.GET, "/messages", request.String(synack.Messages)),
+		request.MakePath(ext.POST, "/forget", request.String(synack.Forget)),
 	)
 }
 

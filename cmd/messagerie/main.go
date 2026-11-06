@@ -18,12 +18,14 @@ func main() {
 	flag.IntVar(&port, "p", 8085, "Port used to start the server")
 	var host string
 	flag.StringVar(&host, "h", "", "Host sent as Origin")
+	var id string
+	flag.StringVar(&id, "id", "", "ID to be registered as on the network.")
 	flag.Parse()
 	if host == "" {
 		host = "http://localhost:" + strconv.Itoa(port)
 	}
 	request.Init(
-		host, port,
+		host, port, id,
 		request.MakePath(ext.GET, "/", request.String(request.Index)),
 		request.MakePath(ext.GET, "/health", request.NoContent(healthCheck)),
 		request.MakePath(ext.GET, "/message", request.String(msg.Get)),

@@ -12,7 +12,7 @@ var engine *gin.Engine
 var Host string
 var Paths []Pathable
 
-func Init(host string, port int, routes ...Pathable) {
+func Init(host string, port int, id string, routes ...Pathable) {
 	engine = gin.New()
 	engine.SetTrustedProxies(nil)
 	for _, route := range routes {

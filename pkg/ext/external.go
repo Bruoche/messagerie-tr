@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 
 	"github.com/Bruoche/messagerie-tr/pkg/log"
 )
@@ -40,6 +41,9 @@ func RawCall(method string, baseUrl string, params url.Values, headers Headers, 
 	request, err := http.NewRequest(method, url, bodyBuffer)
 	if err != nil {
 		log.Error("Une erreur est survenue pour la création de la requête \"%s\" :\n  >> %s", url, err)
+	}
+	if reflect.TypeOf(body).Kind() == reflect.Struct {
+		request.Header.Add("Content-Type", "application/json")
 	}
 	for header, value := range headers {
 		request.Header.Add(header, value)

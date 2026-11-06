@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Bruoche/messagerie-tr/internal/request"
 	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
+	"github.com/Bruoche/messagerie-tr/pkg/request"
 	"github.com/gin-gonic/gin"
 )
 
@@ -66,7 +66,7 @@ func ConnectWith(_ *request.NoParam, q *UrlQuery) (string, error) {
 		},
 		"",
 	)
-	if status != 200 {
+	if status != 202 {
 		return "", request.UnexpectedResponseFrom(connexionUrl, status, string(body))
 	}
 	connections[request.Host] = NAN
@@ -91,9 +91,13 @@ func (h *HostHeader) Load(c *gin.Context) error {
 	return nil
 }
 
-func Syn(h *HostHeader, _ *request.NoParam) (string, error) {
+type IdParam struct {
+	id string
+}
+
+func Syn(h *HostHeader, _ *request.NoParam) error {
 	hostsToSub <- h.host
-	return fmt.Sprintf("Syn request recieved, wait for syn-ack at \"%s\"", h.host), nil
+	return nil
 }
 
 func SendSynAck(hosts chan string) {
@@ -107,15 +111,15 @@ func SendSynAck(hosts chan string) {
 			},
 			"Acknowledging Syn and waiting for acknowledgement of SynAck",
 		)
-		if code != 200 {
+		if code != 202 {
 			log.Warn("Erreur pour envoyer syn-ack au host %s (%d - %s)", host, code, body)
 		}
 	}
 }
 
-func SynAck(h *HostHeader, _ *request.NoParam) (string, error) {
+func SynAck(h *HostHeader, _ *request.NoParam) error {
 	hostsToPub <- h.host
-	return fmt.Sprintf("Syn-Ack request recieved. Wait for ack at \"%s\".", h.host), nil
+	return nil
 }
 
 func SendAck(hosts chan string) {
@@ -131,25 +135,25 @@ func SendAck(hosts chan string) {
 			},
 			"Acknowledging successfull synack.",
 		)
-		if code != 200 {
+		if code != 204 {
 			log.Debug("Erreur pour écouter le host %s (%d)", host, code)
 		}
 	}
 }
 
-func Ack(h *HostHeader, _ *request.NoParam) (string, error) {
+func Ack(h *HostHeader, _ *request.NoParam) error {
 	err := vetAuth(h.host, SYN)
 	if err != nil {
-		return "", err
+		return err
 	}
 	log.Debug("Acknowledging %s", h.host)
 	connections[h.host] = ACK
 	go KeepAlive(h.host)
-	return "Connexion successfull", nil
+	return nil
 }
 
 const DefaultWait = 5
-const maxTries = 2
+const maxTries = 7
 
 func KeepAlive(host string) {
 	tries := 0
@@ -162,7 +166,7 @@ func KeepAlive(host string) {
 			log.Debug("Host %s no longer acknowleged", host)
 		}
 		responseStatus, _ := ext.Call(ext.GET, host+"/health", url.Values{}, ext.Headers{}, "")
-		if responseStatus == 200 {
+		if responseStatus == 204 {
 			time.Sleep(DefaultWait * time.Second)
 			tries = 0
 		} else {
@@ -214,11 +218,11 @@ func Connections(*request.NoParam, *request.NoParam) (string, error) {
 	return response, nil
 }
 
-func Forget(h *HostHeader, expected *request.NoParam) (string, error) {
+func Forget(h *HostHeader, expected *request.NoParam) error {
 	err := vetAuth(h.host, ACK)
 	if err != nil {
-		return "", err
+		return err
 	}
 	delete(connections, h.host)
-	return "Connexion ended.", nil
+	return nil
 }

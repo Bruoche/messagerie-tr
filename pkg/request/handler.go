@@ -58,34 +58,67 @@ type Handler[H, Q any, PH RequestParam[H], PQ RequestParam[Q]] interface {
 	getQuery(*gin.Context) (PQ, error)
 	respond(*gin.Context, PH, PQ) error
 }
-type StringRequest[H, Q any, PH RequestParam[H], PQ RequestParam[Q]] struct {
+type BaseRequest[H, Q any, PH RequestParam[H], PQ RequestParam[Q]] struct {
 	getterH func(*gin.Context) (PH, error)
 	getterQ func(*gin.Context) (PQ, error)
-	handler func(PH, PQ) (string, error)
+	handler func(*gin.Context, PH, PQ) error
 }
 
-var _ Handler[NoParam, NoParam, *NoParam, *NoParam] = StringRequest[NoParam, NoParam, *NoParam, *NoParam]{}
+var _ Handler[NoParam, NoParam, *NoParam, *NoParam] = BaseRequest[NoParam, NoParam, *NoParam, *NoParam]{}
 
-func String[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) (string, error)) StringRequest[H, Q, PH, PQ] {
-	return StringRequest[H, Q, PH, PQ]{
+func String[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) (string, error)) BaseRequest[H, Q, PH, PQ] {
+	return BaseRequest[H, Q, PH, PQ]{
 		makeGetter[H, PH],
 		makeGetter[Q, PQ],
-		handler,
+		func(c *gin.Context, h PH, q PQ) error {
+			response, err := handler(h, q)
+			if err != nil {
+				return err
+			}
+			c.String(http.StatusOK, response)
+			return nil
+		},
 	}
 }
-func (r StringRequest[H, Q, PH, PQ]) getHeader(c *gin.Context) (PH, error) {
+func Accept[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) error) BaseRequest[H, Q, PH, PQ] {
+	return BaseRequest[H, Q, PH, PQ]{
+		makeGetter[H, PH],
+		makeGetter[Q, PQ],
+		statusHandler[H, Q, PH, PQ](http.StatusAccepted, handler),
+	}
+}
+func NoContent[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) error) BaseRequest[H, Q, PH, PQ] {
+	return BaseRequest[H, Q, PH, PQ]{
+		makeGetter[H, PH],
+		makeGetter[Q, PQ],
+		statusHandler[H, Q, PH, PQ](http.StatusAccepted, handler),
+	}
+}
+func Created[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) error) BaseRequest[H, Q, PH, PQ] {
+	return BaseRequest[H, Q, PH, PQ]{
+		makeGetter[H, PH],
+		makeGetter[Q, PQ],
+		statusHandler[H, Q, PH, PQ](http.StatusAccepted, handler),
+	}
+}
+func statusHandler[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](statusOK int, handler func(PH, PQ) error) func(*gin.Context, PH, PQ) error {
+	return func(c *gin.Context, h PH, q PQ) error {
+		err := handler(h, q)
+		if err != nil {
+			return err
+		}
+		c.Status(statusOK)
+		return nil
+	}
+}
+func (r BaseRequest[H, Q, PH, PQ]) getHeader(c *gin.Context) (PH, error) {
 	return r.getterH(c)
 }
-func (r StringRequest[H, Q, PH, PQ]) getQuery(c *gin.Context) (PQ, error) {
+func (r BaseRequest[H, Q, PH, PQ]) getQuery(c *gin.Context) (PQ, error) {
 	return r.getterQ(c)
 }
-func (r StringRequest[H, Q, PH, PQ]) respond(c *gin.Context, header PH, query PQ) error {
-	response, err := r.handler(header, query)
-	if err != nil {
-		return err
-	}
-	c.String(http.StatusOK, response)
-	return nil
+func (r BaseRequest[H, Q, PH, PQ]) respond(c *gin.Context, header PH, query PQ) error {
+	return r.handler(c, header, query)
 }
 
 type Loadable interface {

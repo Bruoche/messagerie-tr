@@ -3,8 +3,8 @@ package msg
 import (
 	"net/url"
 
-	"github.com/Bruoche/messagerie-tr/internal/request"
 	"github.com/Bruoche/messagerie-tr/pkg/ext"
+	"github.com/Bruoche/messagerie-tr/pkg/request"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,30 +1,40 @@
 package synack
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
-	"github.com/Bruoche/messagerie-tr/internal/request"
 	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
+	"github.com/Bruoche/messagerie-tr/pkg/request"
 	"github.com/gin-gonic/gin"
 )
 
 type MessageQuery struct {
 	message string
+	target  string
 }
 
 func (q *MessageQuery) Load(c *gin.Context) error {
 	message, err := request.RequireQuery(c, "message")
+	target, err := request.RequireQuery(c, "target")
 	q.message = message
+	q.target = target
 	return err
 }
 
+type Metadata struct {
+	Source    string `json:"source"`
+	Target    string `json:"target"`
+	Timestamp string `json:"timestamp"`
+}
+
 type MessageResponse struct {
-	Action  string
-	Payload string
+	Metadata Metadata `json:"metadata"`
+	Action   string   `json:"action"`
+	Payload  string   `json:"payload"`
 }
 
 func (r *MessageResponse) Load(c *gin.Context) error {
@@ -46,43 +56,41 @@ type RecievedMessage struct {
 var messages = []RecievedMessage{}
 
 func Send(_ *request.NoParam, q *MessageQuery) (string, error) {
-	msgBody := MessageResponse{"MSG", q.message}
-	errs := []error{}
-	recieved := false
-	for host, ack := range connections {
-		if ack == ACK {
-			status, response := ext.Call(
-				ext.POST, host+"/ingress", url.Values{}, map[string]string{
-					HeaderHost: request.Host,
-				},
-				msgBody,
-			)
-			log.Debug("Sent \"%+s\" to %s", q.message, host)
-			if status != 200 {
-				errs = append(errs, fmt.Errorf("%s: (%d) %s", host, status, response))
-			} else {
-				recieved = true
-			}
-		}
-	}
-	if recieved {
-		messages = append(messages, RecievedMessage{msgBody, request.Host})
-	}
-	err := errors.Join(errs...)
-	if err != nil {
-		return fmt.Sprintf("Some hosts failed:\n%s", err), nil
-	}
-	return "Message sent to all connections.", nil
-}
-
-func Recieve(h *HostHeader, r *MessageResponse) (string, error) {
-	err := vetAuth(h.host, ACK)
+	err := vetAuth(q.target, ACK)
 	if err != nil {
 		return "", err
 	}
+	msgBody := MessageResponse{
+		Metadata: Metadata{
+			Source:    request.Host,
+			Target:    q.target,
+			Timestamp: time.Now().Format("2006-01-02T15:04:05.000Z"),
+		},
+		Action:  "MSG",
+		Payload: q.message,
+	}
+	status, response := ext.Call(
+		ext.POST, q.target+"/ingress", url.Values{}, map[string]string{
+			HeaderHost: request.Host,
+		},
+		msgBody,
+	)
+	log.Debug("Sent \"%+s\" to %s", q.message, q.target)
+	if status != 202 {
+		return "", fmt.Errorf("Couldn't send message to %s: Got (%d) %s", q.target, status, response)
+	}
+	messages = append(messages, RecievedMessage{msgBody, request.Host})
+	return "Message sent to %s.", nil
+}
+
+func Recieve(h *HostHeader, r *MessageResponse) error {
+	err := vetAuth(h.host, ACK)
+	if err != nil {
+		return err
+	}
 	log.Debug("Got message \"%s\"", r.Payload)
 	messages = append(messages, RecievedMessage{*r, h.host})
-	return "Message recieved.", nil
+	return nil
 }
 
 func Messages(*request.NoParam, *request.NoParam) (string, error) {

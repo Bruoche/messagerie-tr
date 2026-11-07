@@ -30,7 +30,7 @@ func main() {
 		request.MakePath(ext.GET, "/messages", request.String(synack.Messages)),
 		request.MakePath(ext.POST, "/register", request.NoContent(synack.RegisterBody)),
 		request.MakePath(ext.POST, "/register/:id", request.NoContent(synack.Register)),
-		request.MakePath(ext.POST, "/brocker/syn/:id", request.Accept(synack.SynRegistered)),
+		request.MakePath(ext.POST, "/broker/syn/:id", request.Accept(synack.SynRegistered)),
 		request.MakePath(ext.POST, "/syn", request.Accept(synack.Syn)),
 		request.MakePath(ext.POST, "/syn-ack", request.Accept(synack.SynAck)),
 		request.MakePath(ext.POST, "/ack", request.NoContent(synack.Ack)),

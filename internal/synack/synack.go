@@ -3,7 +3,6 @@ package synack
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/Bruoche/messagerie-tr/internal/config"
@@ -42,16 +41,20 @@ func (h Host) Request(path string) string {
 	return string(h) + path
 }
 
-var hostsToSub = make(chan Host, 100)
-var hostsToPub = make(chan Host, 100)
+const ConnexionBuffer = 50
+
+var hostsToSub = make(chan Host, ConnexionBuffer)
+var hostsToPub = make(chan Host, ConnexionBuffer)
+var hostsToRegisterTo = make(chan Host, ConnexionBuffer)
 var connections = map[Host]connexionStatus{}
 var registrations = map[ID]Host{}
 
 // const KeyHeaderHost = "Origin"
 
 func Serve() {
-	go SendSynAck(hostsToSub)
-	go SendAck(hostsToPub)
+	go sendSynAck(hostsToSub)
+	go sendAck(hostsToPub)
+	go registerTo(hostsToRegisterTo)
 }
 
 type HostQuery struct {
@@ -97,23 +100,9 @@ func ConnectWith(_ *request.NoParam, q *HostQuery) (string, error) {
 	return fmt.Sprintf("Demande de connexion envoyée à %s", q.url), nil
 }
 
-func tryRegister(host Host) error {
-	status, body := ext.Call(
-		ext.POST,
-		host.Request("/register/"+config.Server.ID),
-		url.Values{},
-		ext.Headers{},
-		fmt.Sprintf("Send response to %s to acknowledge connection.", config.Server.Host+"/syn-ack"),
-	)
-	if status != http.StatusNoContent {
-		return request.UnexpectedResponseFrom(string(host), status, string(body))
-	}
-	return nil
-}
-
 func tryConnect(endpoint string) error {
 	log.Debug("Trying to connect at \"%s\"", endpoint)
-	status, body := ext.Call(ext.POST, endpoint, url.Values{}, ext.Headers{}, "")
+	status, body := ext.EmptyCall(ext.POST, endpoint)
 	if status != 202 {
 		return request.UnexpectedResponseFrom(endpoint, status, string(body))
 	}
@@ -153,6 +142,7 @@ func (p *IdParam) Load(c *gin.Context) error {
 
 func SynRegistered(h *HostHeader, p *IdParam) error {
 	register(h.host, p.id)
+	hostsToRegisterTo <- h.host
 	return Syn(h, &request.NoParam{})
 }
 
@@ -161,13 +151,13 @@ func Syn(h *HostHeader, _ *request.NoParam) error {
 	return nil
 }
 
-func SendSynAck(hosts chan Host) {
+func sendSynAck(hosts chan Host) {
 	log.Info("Starting SendSynAck worker")
 	for host := range hosts {
 		log.Debug("Starting new send syn-ack job for %s", host)
 		connections[host] = SYN
-		code, body := ext.Call(
-			ext.POST, host.Request("/syn-ack"), url.Values{}, ext.Headers{},
+		code, body := ext.SimpleCall(
+			ext.POST, host.Request("/syn-ack"),
 			"Acknowledging Syn and waiting for acknowledgement of SynAck",
 		)
 		if code != 202 {
@@ -185,14 +175,14 @@ func SynAck(h *HostHeader, _ *request.NoParam) error {
 	return nil
 }
 
-func SendAck(hosts chan Host) {
+func sendAck(hosts chan Host) {
 	log.Info("Starting SendAck worker")
 	for host := range hosts {
 		log.Debug("Starting new send ack job at %s", host)
 		connections[host] = ACK
 		go KeepAlive(host)
 		log.Debug("Acknowledging publisher %s", host)
-		code, _ := ext.Call(ext.POST, host.Request("/ack"), url.Values{}, ext.Headers{},
+		code, _ := ext.SimpleCall(ext.POST, host.Request("/ack"),
 			"Acknowledging successfull synack.",
 		)
 		if code != 204 {
@@ -227,7 +217,7 @@ func KeepAlive(host Host) {
 			log.Debug("Host %s no longer acknowleged", host)
 			return
 		}
-		responseStatus, _ := ext.Call(ext.GET, host.Request("/health"), url.Values{}, ext.Headers{}, "")
+		responseStatus, _ := ext.EmptyCall(ext.GET, host.Request("/health"))
 		if responseStatus == http.StatusNoContent {
 			time.Sleep(DefaultWait * time.Second)
 			if tries > 0 {
@@ -276,6 +266,33 @@ func Register(h *HostHeader, q *IdParam) error {
 
 func register(host Host, id ID) {
 	registrations[id] = host
+}
+
+func registerTo(hosts chan Host) {
+	for host := range hosts {
+		err := tryRegister(host)
+		if err != nil {
+			log.Debug("%s", err)
+		}
+	}
+}
+func tryRegister(host Host) error {
+	status, body := ext.SimpleCall(ext.POST, host.Request("/register/"+config.Server.ID), "Registration of id.")
+	if status == http.StatusNoContent {
+		return nil
+	}
+	log.Debug("Error when registering to %s, might be legacy", host)
+	reStatus, reBody := ext.SimpleCall(ext.POST, host.Request("/register"), IdBody{
+		Id:   ID(config.Server.ID),
+		Host: Host(config.Server.Host),
+	})
+	if reStatus == http.StatusNoContent {
+		return nil
+	}
+	return request.ErrorResponse{
+		Code: http.StatusInternalServerError,
+		Err:  (fmt.Sprintf("Impossible de s'enregistrer auprès de %s:\n- (%d) %s\n- (%d) %s", host, status, body, reStatus, reBody)),
+	}
 }
 
 func vetAuth(host Host, expected connexionStatus) error {
@@ -344,7 +361,7 @@ func Disconnect(_ *request.NoParam, q *HostQuery) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	code, body := ext.Call(ext.POST, q.url.Request("/forget"), url.Values{}, ext.Headers{}, "")
+	code, body := ext.EmptyCall(ext.POST, q.url.Request("/forget"))
 	if code != http.StatusNoContent {
 		return "", request.UnexpectedResponseFrom(string(q.url), code, string(body))
 	}

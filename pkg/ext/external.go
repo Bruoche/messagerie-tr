@@ -22,11 +22,11 @@ const (
 var Host = ""
 
 func EmptyCall(method Method, baseUrl string) (int, []byte) {
-	return Call(method, baseUrl, url.Values{}, Headers{}, "")
+	return SimpleCall(method, baseUrl, "")
 }
 
 func SimpleCall(method Method, baseUrl string, body any) (int, []byte) {
-	return Call(method, baseUrl, url.Values{}, Headers{}, "")
+	return Call(method, baseUrl, url.Values{}, Headers{}, body)
 }
 
 func Call(method Method, baseUrl string, params url.Values, headers Headers, body any) (int, []byte) {

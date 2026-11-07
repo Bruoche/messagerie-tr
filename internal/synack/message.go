@@ -2,7 +2,6 @@ package synack
 
 import (
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/Bruoche/messagerie-tr/internal/config"
@@ -63,9 +62,8 @@ func Send(_ *request.NoParam, q *MessageQuery) (string, error) {
 		Action:  "MSG",
 		Payload: q.message,
 	}
-	status, response := ext.Call(
-		ext.POST, host.Request("/ingress"), url.Values{}, ext.Headers{},
-		msgBody,
+	status, response := ext.SimpleCall(
+		ext.POST, host.Request("/ingress"), msgBody,
 	)
 	log.Debug("Sent \"%+s\" to %s", q.message, q.target)
 	if status != 202 {

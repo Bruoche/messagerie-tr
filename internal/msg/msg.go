@@ -1,8 +1,6 @@
 package msg
 
 import (
-	"net/url"
-
 	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/request"
 	"github.com/gin-gonic/gin"
@@ -22,7 +20,7 @@ func (q *UrlQuery) Load(c *gin.Context) error {
 
 func Call(_ *request.NoParam, q *UrlQuery) (string, error) {
 	targetUrl := q.url + "/message"
-	status, body := ext.Call(ext.GET, targetUrl, url.Values{}, ext.Headers{}, "")
+	status, body := ext.EmptyCall(ext.GET, targetUrl)
 	if status != 200 {
 		return "", request.UnexpectedResponseFrom(targetUrl, status, string(body))
 	}

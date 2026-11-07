@@ -4,7 +4,6 @@ import (
 	"flag"
 
 	"github.com/Bruoche/messagerie-tr/internal/config"
-	"github.com/Bruoche/messagerie-tr/internal/msg"
 	"github.com/Bruoche/messagerie-tr/internal/synack"
 	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
@@ -20,8 +19,6 @@ func main() {
 		config.Server.Domain, config.Debug,
 		request.MakePath(ext.GET, "/", request.String(request.Index)),
 		request.MakePath(ext.GET, "/health", request.NoContent(healthCheck)),
-		request.MakePath(ext.GET, "/message", request.String(msg.Get)),
-		request.MakePath(ext.GET, "/message/from", request.String(msg.Call)),
 		request.MakePath(ext.GET, "/connect", request.String(synack.ConnectWith)),
 		request.MakePath(ext.GET, "/disconnect", request.String(synack.Disconnect)),
 		request.MakePath(ext.GET, "/connections", request.String(synack.Connections)),

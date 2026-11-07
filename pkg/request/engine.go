@@ -2,17 +2,18 @@ package request
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/Bruoche/messagerie-tr/pkg/log"
 	"github.com/gin-gonic/gin"
 )
 
 var engine *gin.Engine
-var Host string
 var Paths []Pathable
 
-func Init(host string, port int, id string, routes ...Pathable) {
+func Serve(domain string, showDebug bool, routes ...Pathable) {
+	if !showDebug {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	engine = gin.New()
 	engine.SetTrustedProxies(nil)
 	for _, route := range routes {
@@ -24,9 +25,8 @@ func Init(host string, port int, id string, routes ...Pathable) {
 			log.Error("La méthode \"%s\" (du chemin %s) n'est pas gérée", route.getMethod(), route.getEndpoint())
 		}
 	}
-	Host = host
-	log.Debug("Host is: %s", host)
-	engine.Run("localhost:" + strconv.Itoa(port))
+	log.Info("Starting engine on %s", domain)
+	engine.Run(domain)
 }
 
 func Index(*NoParam, *NoParam) (string, error) {

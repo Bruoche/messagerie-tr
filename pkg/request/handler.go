@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Bruoche/messagerie-tr/internal/logserv"
 	"github.com/Bruoche/messagerie-tr/pkg/ext"
 	"github.com/Bruoche/messagerie-tr/pkg/log"
 	"github.com/gin-gonic/gin"
@@ -25,14 +24,16 @@ var _ Pathable = Path[NoParam, NoParam, *NoParam, *NoParam]{}
 
 func (p Path[H, Q, PH, PQ]) getHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logserv.Called(p.endpoint)
+		log.ServCall(p.endpoint)
 		headers, err := p.handler.getHeader(c)
 		if err != nil {
 			c.String(http.StatusBadRequest, err.Error())
+			return
 		}
 		query, err := p.handler.getQuery(c)
 		if err != nil {
 			c.String(http.StatusBadRequest, err.Error())
+			return
 		}
 		err = p.handler.respond(c, headers, query)
 		if err != nil {
@@ -84,21 +85,21 @@ func Accept[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, P
 	return BaseRequest[H, Q, PH, PQ]{
 		makeGetter[H, PH],
 		makeGetter[Q, PQ],
-		statusHandler[H, Q, PH, PQ](http.StatusAccepted, handler),
+		statusHandler(http.StatusAccepted, handler),
 	}
 }
 func NoContent[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) error) BaseRequest[H, Q, PH, PQ] {
 	return BaseRequest[H, Q, PH, PQ]{
 		makeGetter[H, PH],
 		makeGetter[Q, PQ],
-		statusHandler[H, Q, PH, PQ](http.StatusAccepted, handler),
+		statusHandler(http.StatusNoContent, handler),
 	}
 }
 func Created[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](handler func(PH, PQ) error) BaseRequest[H, Q, PH, PQ] {
 	return BaseRequest[H, Q, PH, PQ]{
 		makeGetter[H, PH],
 		makeGetter[Q, PQ],
-		statusHandler[H, Q, PH, PQ](http.StatusAccepted, handler),
+		statusHandler(http.StatusAccepted, handler),
 	}
 }
 func statusHandler[H, Q any, PH RequestParam[H], PQ RequestParam[Q]](statusOK int, handler func(PH, PQ) error) func(*gin.Context, PH, PQ) error {
@@ -139,12 +140,32 @@ func makeGetter[T any, P RequestParam[T]](c *gin.Context) (P, error) {
 func RequireQuery(c *gin.Context, name string) (string, error) {
 	str, ok := c.GetQuery(name)
 	if !ok {
-		return "", ErrorResponse{
+		return "", &ErrorResponse{
 			Code: http.StatusBadRequest,
 			Err:  fmt.Sprintf("Veuillez renseigner le paramètre requis \"%s\"", name),
 		}
 	}
 	return str, nil
+}
+func RequireParam(c *gin.Context, name string) (string, error) {
+	param := c.Param(name)
+	if param == "" {
+		return "", &ErrorResponse{
+			Code: http.StatusBadRequest,
+			Err:  fmt.Sprintf("Paramètre \"%s\" manquant dans le chemin de la requête", name),
+		}
+	}
+	return param, nil
+}
+func LoadJsonBody[T any, PT RequestParam[T]](c *gin.Context, body PT) error {
+	err := c.ShouldBindJSON(body)
+	if err != nil {
+		return &ErrorResponse{
+			Code: http.StatusBadRequest,
+			Err:  fmt.Sprintf("Impossible de déserialiser le corps de la requête: %s", err),
+		}
+	}
+	return nil
 }
 
 // No Header/Query parameter

@@ -22,7 +22,7 @@ func (q *UrlQuery) Load(c *gin.Context) error {
 
 func Call(_ *request.NoParam, q *UrlQuery) (string, error) {
 	targetUrl := q.url + "/message"
-	status, body := ext.Call(ext.GET, targetUrl, url.Values{}, map[string]string{}, "")
+	status, body := ext.Call(ext.GET, targetUrl, url.Values{}, ext.Headers{}, "")
 	if status != 200 {
 		return "", request.UnexpectedResponseFrom(targetUrl, status, string(body))
 	}

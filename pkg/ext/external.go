@@ -19,6 +19,16 @@ const (
 	POST Method = "POST"
 )
 
+var Host = ""
+
+func EmptyCall(method Method, baseUrl string) (int, []byte) {
+	return Call(method, baseUrl, url.Values{}, Headers{}, "")
+}
+
+func SimpleCall(method Method, baseUrl string, body any) (int, []byte) {
+	return Call(method, baseUrl, url.Values{}, Headers{}, "")
+}
+
 func Call(method Method, baseUrl string, params url.Values, headers Headers, body any) (int, []byte) {
 	response := RawCall(string(method), baseUrl, params, headers, body)
 	if response == nil {
@@ -45,6 +55,7 @@ func RawCall(method string, baseUrl string, params url.Values, headers Headers, 
 	if reflect.TypeOf(body).Kind() == reflect.Struct {
 		request.Header.Add("Content-Type", "application/json")
 	}
+	request.Header.Add("Origin", Host)
 	for header, value := range headers {
 		request.Header.Add(header, value)
 	}
